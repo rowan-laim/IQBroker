@@ -1,0 +1,29 @@
+{
+  "name": "iqbroker",
+  "version": "1.0.0",
+  "description": "High-performance, standalone broker connection, market data stream, candle retrieval, balance management, and hardened trade execution client for IQ Option (Quadcode protocol).",
+  "main": "index.js",
+  "scripts": {
+    "test": "node tests/run-tests.js",
+    "demo": "node examples/quickstart.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "ws": "^8.21.3"
+  },
+  "optionalDependencies": {
+    "playwright": "^1.47.0"
+  },
+  "keywords": [
+    "iqbroker",
+    "iqoption",
+    "quadcode",
+    "broker",
+    "trading",
+    "candles",
+    "websocket",
+    "binary-options",
+    "digital-options"
+  ],
+  "license": "MIT"
+}

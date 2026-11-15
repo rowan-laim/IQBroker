@@ -1,0 +1,8 @@
+node_modules/
+.env
+.browser-profile/
+captures/
+logs/
+*.log
+.DS_Store
+Thumbs.db
