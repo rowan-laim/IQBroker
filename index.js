@@ -28,6 +28,7 @@ const constants = require('./src/protocol/constants');
 const timing = require('./src/client/timing');
 const indicators = require('./src/client/indicators');
 const assetFilter = require('./src/client/assetFilter');
+const candleMethods = require('./src/client/methods/candles');
 const trade = require('./src/trade');
 
 module.exports = {
@@ -55,6 +56,11 @@ module.exports = {
   // Timing & Indicators
   timing,
   indicators,
+
+  // Candle Helpers & Normalization
+  normalizeCandle: candleMethods.normalizeCandle,
+  normalizeCandles: candleMethods.normalizeCandles,
+  extractCandles: candleMethods.extractCandles,
 
   // Asset Filter & Schedules
   assetFilter,

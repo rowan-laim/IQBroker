@@ -156,7 +156,11 @@ class IQSocket extends EventEmitter {
         } else {
           this._rejectAllPending(new Error(`socket closed (${code})`));
         }
-        this.log.warn('closed', code);
+        if (code === 1006) {
+          this.log.debug('socket connection dropped (1006)');
+        } else {
+          this.log.warn('closed', code);
+        }
         this.emit('disconnected', code);
         if (this._authFailed) return;
         if (!this._manualClose) this._scheduleReconnect();
@@ -260,7 +264,7 @@ class IQSocket extends EventEmitter {
         const msg = { name: sub.streamName, params: sub.params };
         if (sub.opts?.version != null) msg.version = sub.opts.version;
         this.send({ name: 'subscribeMessage', request_id, msg });
-        this.log.info('re-subscribed stream', sub.streamName, sub.params);
+        this.log.debug('re-subscribed stream', sub.streamName);
       } catch (err) {
         this.log.warn('re-subscribe failed', sub.streamName, err.message);
       }

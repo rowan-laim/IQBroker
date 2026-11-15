@@ -5,6 +5,7 @@ const testFiles = [
   'verify-standalone.js',
   'test_broker_facade.js',
   'test_socket.js',
+  'test_candles.js',
   'test_http_login.js',
   'test_trade_guards.js',
 ];

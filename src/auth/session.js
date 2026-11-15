@@ -62,6 +62,7 @@ function createClient(opts = {}) {
     ssid,
     url,
     logger: opts.logger,
+    logLevel: opts.logLevel,
     refreshSsid,
   });
 }
