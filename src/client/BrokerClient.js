@@ -33,9 +33,9 @@ class BrokerClient {
    * @param {import('../core/logger').Logger} [opts.logger]
    * @param {(info: { previousSsid: string, reason: string }) => Promise<string>} [opts.refreshSsid]
    */
-  constructor({ ssid, url = DEFAULT_URL, logger, logLevel, refreshSsid } = {}) {
+  constructor({ ssid, url = DEFAULT_URL, logger, logLevel, wsOptions, refreshSsid } = {}) {
     this.log = logger || createLogger('client', logLevel);
-    this.socket = new IQSocket({ ssid, url, logger: this.log.child('socket') });
+    this.socket = new IQSocket({ ssid, url, wsOptions, logger: this.log.child('socket') });
     this.refreshSsid = refreshSsid;
     this._everReady = false;
     this._reauthInFlight = null;

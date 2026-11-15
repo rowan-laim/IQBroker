@@ -48,12 +48,13 @@ class IQSocket extends EventEmitter {
    * @param {string} [opts.ssid] - session id from HTTP login (may be empty; IQClient.refreshSsid fills it)
    * @param {import('./logger').Logger} [opts.logger]
    */
-  constructor({ url = DEFAULT_URL, ssid, logger } = {}) {
+  constructor({ url = DEFAULT_URL, ssid, logger, wsOptions } = {}) {
     super();
     this.setMaxListeners(0);
     this.url = url;
     this.ssid = ssid || '';
     this.log = logger || createLogger('socket');
+    this.wsOptions = { rejectUnauthorized: false, ...wsOptions };
 
     this.ws = null;
     this.connected = false;
@@ -117,7 +118,7 @@ class IQSocket extends EventEmitter {
       return Promise.reject(err);
     }
     return new Promise((resolve, reject) => {
-      this.ws = new WebSocket(this.url);
+      this.ws = new WebSocket(this.url, this.wsOptions);
       let settled = false;
       const settle = (fn, value) => {
         if (settled) return;
