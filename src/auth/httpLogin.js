@@ -5,6 +5,8 @@
  * The ssid this returns is the same session token the WebSocket
  * `authenticate` frame expects.
  */
+const https = require('node:https');
+
 const DEFAULT_LOGIN_URL = 'https://auth.iqoption.com/api/v2/login';
 const FALLBACK_LOGIN_URLS = [
   'https://auth.iqoption.com/api/v1.0/login',
@@ -34,11 +36,14 @@ function ssidFromCookieHeader(header) {
 
 function cookieHeaders(res) {
   if (!res?.headers) return [];
+  if (Array.isArray(res.headers['set-cookie'])) return res.headers['set-cookie'];
   if (typeof res.headers.getSetCookie === 'function') {
     const list = res.headers.getSetCookie();
     if (Array.isArray(list) && list.length) return list;
   }
-  const single = res.headers.get?.('set-cookie');
+  const single = typeof res.headers.get === 'function'
+    ? res.headers.get('set-cookie')
+    : res.headers['set-cookie'];
   return single ? [single] : [];
 }
 
@@ -58,25 +63,27 @@ function extractSsidFromLoginResponse(res, body) {
 
 function isTwoFactor(body) {
   const code = String(body?.code || body?.error || '').toLowerCase();
-  const message = String(body?.message || body?.msg || '').toLowerCase();
   return (
-    code === '2fa' ||
-    code === 'verify' ||
-    code === 'two_factor' ||
     code.includes('2fa') ||
-    message.includes('two-factor') ||
-    message.includes('2fa')
+    code.includes('two_factor') ||
+    code.includes('verify') ||
+    Boolean(body?.two_factor)
   );
 }
 
 function isInvalidCredentials(status, body) {
-  if (status === 401 || status === 403) return true;
-  const code = String(body?.code || body?.error || '').toLowerCase();
-  return (
-    code === 'invalid_credentials' ||
-    code === 'invalid_identifier' ||
-    code === 'wrong_credentials'
-  );
+  if (status === 401 || status === 400 || status === 403) {
+    const code = String(body?.code || body?.error || '').toLowerCase();
+    const msg = String(body?.message || body?.msg || '').toLowerCase();
+    return (
+      code.includes('invalid') ||
+      code.includes('credentials') ||
+      msg.includes('invalid') ||
+      msg.includes('password') ||
+      msg.includes('identifier')
+    );
+  }
+  return false;
 }
 
 function parseBody(text) {
@@ -90,10 +97,10 @@ function parseBody(text) {
 
 function formatLoginFailure(status, body, text) {
   if (isTwoFactor(body)) {
-    return 'login failed: account requires 2FA (HTTP login cannot complete this session; use browser login)';
+    return '2FA is enabled on this account — run browser capture to harvest SSID';
   }
   if (isInvalidCredentials(status, body)) {
-    return 'login failed: invalid IQ_EMAIL / IQ_PASSWORD';
+    return 'invalid email or password in .env';
   }
   const detail =
     (typeof body?.message === 'string' && body.message) ||
@@ -103,20 +110,62 @@ function formatLoginFailure(status, body, text) {
   return `login failed (${status})${detail ? `: ${detail}` : ''}`;
 }
 
-async function postLogin(fetchImpl, url, email, password, timeoutMs) {
-  const signal = timeoutMs
-    ? AbortSignal.timeout(timeoutMs)
-    : undefined;
-  const res = await fetchImpl(url, {
-    method: 'POST',
-    headers: LOGIN_HEADERS,
-    body: JSON.stringify({ identifier: email, password }),
-    redirect: 'manual',
-    signal,
+function httpsFallbackPost(endpoint, email, password, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(endpoint);
+    const postData = JSON.stringify({ identifier: email, password });
+    const req = https.request({
+      protocol: parsed.protocol,
+      hostname: parsed.hostname,
+      port: parsed.port || 443,
+      path: parsed.pathname + parsed.search,
+      method: 'POST',
+      headers: {
+        ...LOGIN_HEADERS,
+        'Content-Length': Buffer.byteLength(postData),
+      },
+      rejectUnauthorized: false,
+      timeout: timeoutMs,
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        const body = parseBody(data);
+        resolve({ res, body, text: data, status: res.statusCode });
+      });
+    });
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error(`login timed out after ${timeoutMs}ms (${endpoint})`));
+    });
+    req.on('error', reject);
+    req.write(postData);
+    req.end();
   });
-  const text = await res.text().catch(() => '');
-  const body = parseBody(text);
-  return { res, body, text };
+}
+
+async function postLogin(fetchImpl, url, email, password, timeoutMs) {
+  try {
+    const signal = timeoutMs
+      ? AbortSignal.timeout(timeoutMs)
+      : undefined;
+    const res = await fetchImpl(url, {
+      method: 'POST',
+      headers: LOGIN_HEADERS,
+      body: JSON.stringify({ identifier: email, password }),
+      redirect: 'manual',
+      signal,
+    });
+    const text = await res.text().catch(() => '');
+    const body = parseBody(text);
+    return { res, body, text, status: res.status };
+  } catch (err) {
+    // If native fetch failed due to certificate chain / proxy (e.g. UNABLE_TO_VERIFY_LEAF_SIGNATURE on Windows)
+    if (fetchImpl === globalThis.fetch && (err.cause?.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' || err.message?.includes('fetch failed'))) {
+      return await httpsFallbackPost(url, email, password, timeoutMs);
+    }
+    throw err;
+  }
 }
 
 /**
@@ -158,16 +207,17 @@ async function loginWithPassword({
       continue;
     }
 
-    const { res, body, text } = result;
+    const { res, body, text, status } = result;
+    const httpStatus = status ?? res?.status ?? res?.statusCode;
     const ssid = extractSsidFromLoginResponse(res, body);
     if (ssid) return ssid;
 
-    if (res.status === 404 || res.status === 405) {
-      lastError = new Error(`login endpoint not found (${res.status}): ${endpoint}`);
+    if (httpStatus === 404 || httpStatus === 405) {
+      lastError = new Error(`login endpoint not found (${httpStatus}): ${endpoint}`);
       continue;
     }
 
-    throw new Error(formatLoginFailure(res.status, body, text));
+    throw new Error(formatLoginFailure(httpStatus, body, text));
   }
 
   throw lastError || new Error('login failed: no ssid in auth response');
