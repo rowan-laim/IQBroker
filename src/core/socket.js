@@ -405,29 +405,41 @@ class IQSocket extends EventEmitter {
         return;
       }
 
-      // If response has an ID or is not an option placement, resolve immediately
-      const hasId = frame.msg?.id != null || frame.msg?.position_id != null || frame.msg?.order_id != null;
-      if (hasId || !pending.isOptionPlace) {
-        this._resolvePending(request_id, frame.msg);
+      // If it is an option placement:
+      if (pending.isOptionPlace) {
+        const hasId = frame.msg?.id != null || frame.msg?.position_id != null || frame.msg?.order_id != null;
+        if (hasId) {
+          this._resolvePending(request_id, frame.msg);
+          return;
+        }
+
+        // Option place ack with bare {success: true}: wait max 150ms for push:option, then resolve ack
+        let resolved = false;
+        const finish = (val) => {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(quickTimer);
+          this.off('push:option', onOptionPush);
+          this.off('push:option-opened', onOptionPush);
+          this._resolvePending(request_id, val);
+        };
+
+        const onOptionPush = (msg) => finish(msg);
+        const quickTimer = setTimeout(() => finish(frame.msg), 150);
+
+        this.once('push:option', onOptionPush);
+        this.once('push:option-opened', onOptionPush);
         return;
       }
 
-      // Option place ack with bare {success: true}: wait max 150ms for push:option, then resolve ack
-      let resolved = false;
-      const finish = (val) => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(quickTimer);
-        this.off('push:option', onOptionPush);
-        this.off('push:option-opened', onOptionPush);
-        this._resolvePending(request_id, val);
-      };
-
-      const onOptionPush = (msg) => finish(msg);
-      const quickTimer = setTimeout(() => finish(frame.msg), 150);
-
-      this.once('push:option', onOptionPush);
-      this.once('push:option-opened', onOptionPush);
+      // Non-option requests:
+      // If frame.msg has actual data payload (more than just bare { success: true }), resolve immediately.
+      // Otherwise it is just an ACK frame — keep pending open for the subsequent named payload frame.
+      const msgKeys = Object.keys(frame.msg || {});
+      const isBareAck = msgKeys.length <= 1 && (msgKeys.length === 0 || msgKeys[0] === 'success');
+      if (!isBareAck) {
+        this._resolvePending(request_id, frame.msg);
+      }
       return;
     }
 
