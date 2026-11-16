@@ -9,6 +9,7 @@ const {
   isExplicitRejection,
   OUTCOME,
 } = require('../src/trade/executionGuard');
+const { OrderIdGenerator } = require('../src/trade/orderIdGenerator');
 
 console.log('Testing Broker Trade Safety Guards...');
 
@@ -76,7 +77,45 @@ async function testExecutionGuard() {
 async function run() {
   testDurationGuard();
   await testExecutionGuard();
+  testOrderIdGenerator();
   console.log('All trade guard tests PASSED! ✅\n');
+}
+
+// 3. OrderIdGenerator Tests
+function testOrderIdGenerator() {
+  const gen = new OrderIdGenerator({ startCounter: 100, prefix: 'A' });
+
+  const id1 = gen.next();
+  const id2 = gen.next();
+  const id3 = gen.next();
+
+  // Format: 1 uppercase letter + 3 digits + 2 uppercase letters = 6 chars
+  assert.match(id1, /^[A-Z]\d{3}[A-Z]{2}$/, `ID1 format wrong: ${id1}`);
+  assert.match(id2, /^[A-Z]\d{3}[A-Z]{2}$/, `ID2 format wrong: ${id2}`);
+  assert.match(id3, /^[A-Z]\d{3}[A-Z]{2}$/, `ID3 format wrong: ${id3}`);
+
+  // Numeric part must increment: A100** → A101** → A102**
+  assert.ok(id1.startsWith('A100'), `Expected A100**, got ${id1}`);
+  assert.ok(id2.startsWith('A101'), `Expected A101**, got ${id2}`);
+  assert.ok(id3.startsWith('A102'), `Expected A102**, got ${id3}`);
+
+  // Suffix is always 2 uppercase letters
+  assert.match(id1.slice(4), /^[A-Z]{2}$/, `Suffix wrong: ${id1.slice(4)}`);
+
+  // Prefix rollover: A999 → B100
+  const rollGen = new OrderIdGenerator({ startCounter: 999, prefix: 'A' });
+  const a999 = rollGen.next(); // A999**
+  const b100 = rollGen.next(); // B100**
+  assert.ok(a999.startsWith('A999'), `Expected A999**, got ${a999}`);
+  assert.ok(b100.startsWith('B100'), `Expected B100**, got ${b100}`);
+
+  // All 26 prefix letters cycle
+  const cycleGen = new OrderIdGenerator({ startCounter: 999, prefix: 'Z' });
+  cycleGen.next(); // Z999**
+  const a100again = cycleGen.next(); // A100** (Z → A wrap)
+  assert.ok(a100again.startsWith('A100'), `Expected Z→A wrap, got ${a100again}`);
+
+  console.log(`  ✅ OrderIdGenerator verified: ${id1} → ${id2} → ${id3}, rollover ${a999} → ${b100}`);
 }
 
 run().catch((err) => {

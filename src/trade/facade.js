@@ -14,6 +14,7 @@ const DeferredExecutor = require('./deferredExecutor');
 const tradeRecovery = require('./tradeRecovery');
 const { TradeReconciler } = require('./tradeReconciler');
 const { executeTrade } = require('./tradeEngine');
+const { OrderIdGenerator } = require('./orderIdGenerator');
 
 // Built-in placers are registered by default but remain fully pluggable —
 // a caller can registerPlacer('turbo', myOwnPlacer) to override one, or
@@ -67,4 +68,7 @@ module.exports = {
 
   // High-level orchestrator: prepare -> validate duration -> place -> record
   executeTrade,
+
+  // Human-readable incremental order IDs (A100GH format)
+  OrderIdGenerator,
 };

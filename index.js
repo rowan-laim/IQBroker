@@ -68,4 +68,5 @@ module.exports = {
   // Trade Execution, Guards, & Lifecycle Ledger
   trade,
   TradeReconciler: trade.TradeReconciler,
+  OrderIdGenerator: trade.OrderIdGenerator,
 };
