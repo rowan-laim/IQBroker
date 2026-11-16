@@ -320,11 +320,6 @@ class IQSocket extends EventEmitter {
   }
 
   _track(request_id, doSend, timeoutMs = REQUEST_TIMEOUT_MS, name = 'unknown') {
-    // Extra grace window for option placements: the broker sends a `result` ack
-    // first (success:true, no id) and then the actual option frame later.
-    // If the main timeout fires while we have a successful ack but no resolved
-    // id, we wait up to OPTION_GRACE_MS on the push channel before giving up.
-    const OPTION_GRACE_MS = 4000;
     const isOptionPlace = name === 'binary-options.open-option' || name === 'digital-options.place-digital-option';
 
     return new Promise((resolve, reject) => {
@@ -334,34 +329,14 @@ class IQSocket extends EventEmitter {
         this._pending.delete(request_id);
 
         const ack = pending.ackFrame?.msg;
-        if (ack && ack.success !== false && isOptionPlace) {
-          // We got a positive ack but no data frame yet. Wait for the late push.
-          let graceTimer;
-          const onOptionPush = (msg) => {
-            clearTimeout(graceTimer);
-            this.off('push:option', onOptionPush);
-            this.off('push:option-opened', onOptionPush);
-            resolve(msg);
-          };
-          graceTimer = setTimeout(() => {
-            this.off('push:option', onOptionPush);
-            this.off('push:option-opened', onOptionPush);
-            // Still no data frame — resolve with ack so reconciler can try WS match
-            resolve(ack);
-          }, OPTION_GRACE_MS);
-          this.once('push:option', onOptionPush);
-          this.once('push:option-opened', onOptionPush);
-          return;
-        }
-
         if (ack && ack.success !== false) {
-          pending.resolve(ack);
+          resolve(ack);
         } else {
-          pending.reject(new Error(`request ${request_id} (${name}) timed out`));
+          reject(new Error(`request ${request_id} (${name}) timed out`));
         }
       }, timeoutMs);
 
-      this._pending.set(request_id, { resolve, reject, timer, ackFrame: null });
+      this._pending.set(request_id, { resolve, reject, timer, ackFrame: null, isOptionPlace, name });
       try {
         doSend();
       } catch (err) {
@@ -429,6 +404,30 @@ class IQSocket extends EventEmitter {
         this._rejectPending(request_id, new Error(`request ${request_id} failed: ${reason}`));
         return;
       }
+
+      // If response has an ID or is not an option placement, resolve immediately
+      const hasId = frame.msg?.id != null || frame.msg?.position_id != null || frame.msg?.order_id != null;
+      if (hasId || !pending.isOptionPlace) {
+        this._resolvePending(request_id, frame.msg);
+        return;
+      }
+
+      // Option place ack with bare {success: true}: wait max 150ms for push:option, then resolve ack
+      let resolved = false;
+      const finish = (val) => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(quickTimer);
+        this.off('push:option', onOptionPush);
+        this.off('push:option-opened', onOptionPush);
+        this._resolvePending(request_id, val);
+      };
+
+      const onOptionPush = (msg) => finish(msg);
+      const quickTimer = setTimeout(() => finish(frame.msg), 150);
+
+      this.once('push:option', onOptionPush);
+      this.once('push:option-opened', onOptionPush);
       return;
     }
 
