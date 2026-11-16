@@ -320,13 +320,42 @@ class IQSocket extends EventEmitter {
   }
 
   _track(request_id, doSend, timeoutMs = REQUEST_TIMEOUT_MS, name = 'unknown') {
+    // Extra grace window for option placements: the broker sends a `result` ack
+    // first (success:true, no id) and then the actual option frame later.
+    // If the main timeout fires while we have a successful ack but no resolved
+    // id, we wait up to OPTION_GRACE_MS on the push channel before giving up.
+    const OPTION_GRACE_MS = 4000;
+    const isOptionPlace = name === 'binary-options.open-option' || name === 'digital-options.place-digital-option';
+
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         const pending = this._pending.get(request_id);
         if (!pending) return;
         this._pending.delete(request_id);
-        if (pending.ackFrame?.msg && pending.ackFrame.msg.success !== false) {
-          pending.resolve(pending.ackFrame.msg);
+
+        const ack = pending.ackFrame?.msg;
+        if (ack && ack.success !== false && isOptionPlace) {
+          // We got a positive ack but no data frame yet. Wait for the late push.
+          let graceTimer;
+          const onOptionPush = (msg) => {
+            clearTimeout(graceTimer);
+            this.off('push:option', onOptionPush);
+            this.off('push:option-opened', onOptionPush);
+            resolve(msg);
+          };
+          graceTimer = setTimeout(() => {
+            this.off('push:option', onOptionPush);
+            this.off('push:option-opened', onOptionPush);
+            // Still no data frame — resolve with ack so reconciler can try WS match
+            resolve(ack);
+          }, OPTION_GRACE_MS);
+          this.once('push:option', onOptionPush);
+          this.once('push:option-opened', onOptionPush);
+          return;
+        }
+
+        if (ack && ack.success !== false) {
+          pending.resolve(ack);
         } else {
           pending.reject(new Error(`request ${request_id} (${name}) timed out`));
         }

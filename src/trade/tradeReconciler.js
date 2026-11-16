@@ -84,6 +84,39 @@ class TradeReconciler {
 
   /**
    * Reconciles an uncertain or missing-ID order against recent WebSocket events.
+   * Uses an exponential-backoff retry loop so late-arriving position pushes are caught.
+   *
+   * @param {object} intent
+   * @param {number} intent.activeId
+   * @param {string} intent.direction - 'call' | 'put'
+   * @param {number} intent.stake
+   * @param {number} [intent.initiatedAt] - epoch ms
+   * @param {number} [intent.windowMs]
+   * @param {number} [intent.maxWaitMs=5000] - total time to keep retrying
+   * @returns {Promise<object|null>} Reconciled order details or null
+   */
+  async reconcileWithRetry(intent) {
+    const maxWaitMs = intent.maxWaitMs ?? 5000;
+    const start = Date.now();
+    const delays = [0, 300, 700, 1500, 2500]; // ms between attempts
+
+    for (const delay of delays) {
+      if (Date.now() - start > maxWaitMs) break;
+      if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+      const result = this.reconcile(intent);
+      if (result) return result;
+    }
+
+    // Final attempt at deadline
+    if (Date.now() - start <= maxWaitMs) {
+      await new Promise((r) => setTimeout(r, Math.max(0, maxWaitMs - (Date.now() - start))));
+      return this.reconcile(intent);
+    }
+    return null;
+  }
+
+  /**
+   * Reconciles an uncertain or missing-ID order against recent WebSocket events.
    *
    * @param {object} intent
    * @param {number} intent.activeId

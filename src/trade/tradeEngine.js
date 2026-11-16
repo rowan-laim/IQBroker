@@ -72,7 +72,15 @@ async function executeTrade(ctx) {
     // resolve it explicitly via TradeManager.findUnconfirmedMatch +
     // recordPlacement({ unconfirmed: true, ... }) if it wants to track
     // the ambiguity instead of dropping it.
-    const err = new Error(`${product} placement outcome is uncertain — no confirmed id and no explicit rejection`);
+    //
+    // If onRecoverUncertain was supplied and ran (e.g. TradeReconciler.reconcileWithRetry),
+    // it means no matching position/balance event arrived within the wait window —
+    // the trade genuinely did not execute server-side, or push events are severely delayed.
+    const err = new Error(
+      `${product} placement outcome is uncertain — broker acked the request but returned no position id. ` +
+      `WebSocket reconciler found no matching position within the recovery window. ` +
+      `This is likely a broker-side delay or market closure. No trade has been recorded.`
+    );
     err.placementOutcome = guardResult;
     throw err;
   }

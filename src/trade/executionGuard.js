@@ -31,9 +31,15 @@ const OUTCOME = Object.freeze({
  * Best-effort detection of an explicit broker rejection carried in a
  * resolved (non-throwing) response, e.g. `{ code: 'invalid_expiration' }`
  * or `{ success: false, message: 'duration too short' }`.
+ *
+ * NOTE: A bare ack `{ success: true }` with no ID is NOT a rejection —
+ * it means the broker acknowledged the request but hasn't sent the option
+ * frame yet (two-frame protocol). That is handled as UNCERTAIN, not REJECTED.
  */
 function isExplicitRejection(res) {
   if (!res || typeof res !== 'object') return false;
+  // A clean positive ack — do NOT reject this, let it fall through to id-check
+  if (res.success === true && res.id == null && res.order_id == null && Object.keys(res).length <= 2) return false;
   if (res.success === false) return true;
   if (res.status === 'error' || res.result === 'error') return true;
   const code = res.code ?? res.result?.code ?? res.error?.code;
@@ -42,8 +48,9 @@ function isExplicitRejection(res) {
   if (msg && /reject|invalid|fail|not allowed|too short|expired|out of range|over|suspend|not available|closed|disabled|maintenance|cannot purchase|insufficient/i.test(msg)) {
     return true;
   }
-  // Any resolved response with a message and without any id is an explicit rejection
-  if (typeof res.message === 'string' && res.message.length > 0 && res.id == null && res.order_id == null) {
+  // Any resolved response WITH a message and WITHOUT any id is an explicit rejection
+  // — but only if success is not true (true ack with no id = uncertain, not rejected)
+  if (typeof res.message === 'string' && res.message.length > 0 && res.id == null && res.order_id == null && res.success !== true) {
     return true;
   }
   return false;

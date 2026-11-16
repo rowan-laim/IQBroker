@@ -36,7 +36,7 @@ function extractPlaceId(res) {
 
 function isUncertainPlaceError(err) {
   const msg = String(err?.message || err || '');
-  return /timed out/i.test(msg) || /socket closed/i.test(msg);
+  return /timed out/i.test(msg) || /socket closed/i.test(msg) || /socket not open/i.test(msg);
 }
 
 function asList(value) {
