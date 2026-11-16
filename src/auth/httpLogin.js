@@ -11,7 +11,7 @@ const DEFAULT_LOGIN_URL = 'https://auth.iqoption.com/api/v2/login';
 const FALLBACK_LOGIN_URLS = [
   'https://auth.iqoption.com/api/v1.0/login',
 ];
-const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_TIMEOUT_MS = 20_000;
 
 const LOGIN_HEADERS = Object.freeze({
   Accept: 'application/json',
@@ -112,8 +112,15 @@ function formatLoginFailure(status, body, text) {
 
 function httpsFallbackPost(endpoint, email, password, timeoutMs) {
   return new Promise((resolve, reject) => {
+    let timedOut = false;
     const parsed = new URL(endpoint);
     const postData = JSON.stringify({ identifier: email, password });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try { req.destroy(); } catch (_) {}
+      reject(new Error(`login timed out after ${timeoutMs}ms (${endpoint})`));
+    }, timeoutMs);
+
     const req = https.request({
       protocol: parsed.protocol,
       hostname: parsed.hostname,
@@ -125,8 +132,8 @@ function httpsFallbackPost(endpoint, email, password, timeoutMs) {
         'Content-Length': Buffer.byteLength(postData),
       },
       rejectUnauthorized: false,
-      timeout: timeoutMs,
     }, (res) => {
+      clearTimeout(timer);
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
@@ -134,17 +141,42 @@ function httpsFallbackPost(endpoint, email, password, timeoutMs) {
         resolve({ res, body, text: data, status: res.statusCode });
       });
     });
-    req.on('timeout', () => {
-      req.destroy();
-      reject(new Error(`login timed out after ${timeoutMs}ms (${endpoint})`));
+
+    req.on('error', (err) => {
+      clearTimeout(timer);
+      if (!timedOut) reject(err);
     });
-    req.on('error', reject);
+
     req.write(postData);
     req.end();
   });
 }
 
 async function postLogin(fetchImpl, url, email, password, timeoutMs) {
+  // If custom mock fetchImpl is passed, use it directly
+  if (fetchImpl && fetchImpl !== globalThis.fetch) {
+    const signal = timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined;
+    const res = await fetchImpl(url, {
+      method: 'POST',
+      headers: LOGIN_HEADERS,
+      body: JSON.stringify({ identifier: email, password }),
+      redirect: 'manual',
+      signal,
+    });
+    const text = await res.text().catch(() => '');
+    const body = parseBody(text);
+    return { res, body, text, status: res.status };
+  }
+
+  // In Node.js environment, prefer native https request with resilient TLS and proper headers
+  if (typeof process !== 'undefined' && process.versions?.node) {
+    try {
+      return await httpsFallbackPost(url, email, password, timeoutMs);
+    } catch (_) {
+      // Fall through to fetch if https fails
+    }
+  }
+
   try {
     const signal = timeoutMs
       ? AbortSignal.timeout(timeoutMs)
@@ -160,11 +192,7 @@ async function postLogin(fetchImpl, url, email, password, timeoutMs) {
     const body = parseBody(text);
     return { res, body, text, status: res.status };
   } catch (err) {
-    // If native fetch failed due to certificate chain / proxy (e.g. UNABLE_TO_VERIFY_LEAF_SIGNATURE on Windows)
-    if (fetchImpl === globalThis.fetch && (err.cause?.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' || err.message?.includes('fetch failed'))) {
-      return await httpsFallbackPost(url, email, password, timeoutMs);
-    }
-    throw err;
+    return await httpsFallbackPost(url, email, password, timeoutMs);
   }
 }
 

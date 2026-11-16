@@ -7,9 +7,13 @@
 function prepare(ctx) {
   const { asset, timeframeSeconds, signal, deps } = ctx;
   const prepared = signal?.executionPreparation;
-  const expired = prepared?.product === 'turbo'
-    ? prepared.expired
-    : deps.selectTurboExpiry(asset.raw, timeframeSeconds);
+  if (ctx.expired) {
+    return { expired: ctx.expired, expirationSize: null };
+  }
+  if (prepared?.product === 'turbo') {
+    return { expired: prepared.expired, expirationSize: null };
+  }
+  const expired = deps.selectTurboExpiry(asset?.raw, timeframeSeconds);
   return { expired, expirationSize: null };
 }
 

@@ -38,8 +38,14 @@ function isExplicitRejection(res) {
   if (res.status === 'error' || res.result === 'error') return true;
   const code = res.code ?? res.result?.code ?? res.error?.code;
   if (code != null && /error|reject|invalid|fail/i.test(String(code))) return true;
-  const msg = String(res.message || res.error?.message || res.result?.message || '').toLowerCase();
-  if (msg && /reject|invalid|fail|not allowed|too short|expired|out of range/i.test(msg)) return true;
+  const msg = String(res.message || res.error?.message || res.result?.message || res.msg || '').toLowerCase();
+  if (msg && /reject|invalid|fail|not allowed|too short|expired|out of range|over|suspend|not available|closed|disabled|maintenance|cannot purchase|insufficient/i.test(msg)) {
+    return true;
+  }
+  // Any resolved response with a message and without any id is an explicit rejection
+  if (typeof res.message === 'string' && res.message.length > 0 && res.id == null && res.order_id == null) {
+    return true;
+  }
   return false;
 }
 

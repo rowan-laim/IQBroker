@@ -12,6 +12,7 @@ const { collectPositionIds, outcomeFromPosition, profitFromPosition, isClosedPos
 const liveSettlement = require('./liveSettlement');
 const DeferredExecutor = require('./deferredExecutor');
 const tradeRecovery = require('./tradeRecovery');
+const { TradeReconciler } = require('./tradeReconciler');
 const { executeTrade } = require('./tradeEngine');
 
 // Built-in placers are registered by default but remain fully pluggable —
@@ -62,6 +63,7 @@ module.exports = {
 
   // Server-fill recovery for timed-out/ambiguous placements
   ...tradeRecovery,
+  TradeReconciler,
 
   // High-level orchestrator: prepare -> validate duration -> place -> record
   executeTrade,

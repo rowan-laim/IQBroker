@@ -17,6 +17,12 @@ function createSsidRefresher(opts = {}) {
     }
     if (reason) console.log(`[session] ${reason} — requesting a fresh SSID over HTTP`);
     const ssid = await loginWithPassword({ email, password, url, timeoutMs });
+    if (ssid) {
+      try {
+        const { writeSsidToEnvFile } = require('./browserSession');
+        writeSsidToEnvFile(ssid);
+      } catch (_) {}
+    }
     if (typeof opts.onRefresh === 'function') {
       try { opts.onRefresh(ssid); } catch (_) {}
     }
@@ -44,9 +50,10 @@ function createClient(opts = {}) {
   if (opts.freshSession === true && !credentialsAvailable) {
     throw new AuthenticationError('The trading client requires IQ_EMAIL and IQ_PASSWORD to request a fresh session; a saved IQ_SSID is not used.');
   }
-  const ssid = opts.freshSession === true || (credentialsAvailable && opts.autoRefresh !== false)
+  const configuredSsid = opts.ssid || process.env.IQ_SSID || '';
+  const ssid = opts.freshSession === true
     ? ''
-    : (opts.ssid || process.env.IQ_SSID || '');
+    : configuredSsid;
   const url = opts.url || process.env.IQ_WS_URL;
   let refreshSsid = undefined;
 

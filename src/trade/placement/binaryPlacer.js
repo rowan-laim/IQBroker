@@ -1,9 +1,13 @@
 function prepare(ctx) {
   const { timeframeSeconds, signal, deps } = ctx;
   const prepared = signal?.executionPreparation;
-  const expired = prepared?.product === 'binary'
-    ? prepared.expired
-    : deps.binaryExpiryForDuration(timeframeSeconds);
+  if (ctx.expired) {
+    return { expired: ctx.expired, expirationSize: null };
+  }
+  if (prepared?.product === 'binary') {
+    return { expired: prepared.expired, expirationSize: null };
+  }
+  const expired = deps.binaryExpiryForDuration(timeframeSeconds);
   return { expired, expirationSize: null };
 }
 

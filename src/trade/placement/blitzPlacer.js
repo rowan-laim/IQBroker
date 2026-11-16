@@ -1,19 +1,18 @@
 /**
- * Blitz placer. This is the product most directly implicated in the
- * 0-duration bug: selectBlitzDuration() picking an empty/zero entry from
- * asset.availableDurations used to flow straight into blitzExpiryForDuration()
- * and then straight into client.buyBlitz() with nothing checking the
- * result was a sane future timestamp.
+ * Blitz placer.
  */
 
 function prepare(ctx) {
   const { asset, timeframeSeconds, signal, deps } = ctx;
   const prepared = signal?.executionPreparation;
+  if (ctx.expired && ctx.expirationSize) {
+    return { expired: ctx.expired, expirationSize: ctx.expirationSize };
+  }
   if (prepared?.product === 'blitz') {
     return { expired: prepared.expired, expirationSize: prepared.expirationSize ?? null };
   }
-  const expirationSize = deps.selectBlitzDuration(asset.availableDurations, timeframeSeconds);
-  const expired = deps.blitzExpiryForDuration(expirationSize);
+  const expirationSize = ctx.expirationSize || deps.selectBlitzDuration(asset?.availableDurations, timeframeSeconds);
+  const expired = ctx.expired || deps.blitzExpiryForDuration(expirationSize);
   return { expired, expirationSize };
 }
 
